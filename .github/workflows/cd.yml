@@ -1,72 +1,252 @@
-name: Publish
+name: Release
 
 on:
   push:
     tags:
-      - "*"
-  release:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.1.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  binary:
-    name: Publish ${{ matrix.target }}
+  # Validate and prepare
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Verify tag format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+            echo "Error: Version tag must match pattern v*.*.* (e.g., v0.1.0)"
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run tests
+        run: cargo test --all-features --verbose
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # Build binaries for all platforms
+  build:
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            target: x86_64-apple-darwin
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - os: ubuntu-latest
-            target: x86_64-pc-windows-gnu
-          - os: ubuntu-latest
-            target: armv7-unknown-linux-musleabihf
-          - os: ubuntu-latest
-            target: armv7-linux-androideabi
-          - os: ubuntu-latest
-            target: aarch64-linux-android
+            target: x86_64-unknown-linux-gnu
+            archive_format: tar.gz
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            archive_format: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive_format: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
+            archive_format: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_format: zip
+
     steps:
-      ### We're checking out the repository at the triggered ref
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Get the version
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
-      - name: Check if release exists
-        id: check_release
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Add target for cross-compilation (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          if gh release view ${{ steps.get_version.outputs.VERSION }} > /dev/null 2>&1; then
-            echo "RELEASE_EXISTS=true" >> $GITHUB_OUTPUT
-          else
-            echo "RELEASE_EXISTS=false" >> $GITHUB_OUTPUT
+          rustup target add ${{ matrix.target }}
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build release binary
+        run: |
+          if [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
+            export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          cargo build --release --target ${{ matrix.target }}
 
-      - name: Create release
-        continue-on-error: true
-        if: steps.check_release.outputs.RELEASE_EXISTS == 'false'
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
         run: |
-          gh release create ${{ steps.get_version.outputs.VERSION }} \
-            --title "Release ${{ steps.get_version.outputs.VERSION }}" \
-            --notes "Release notes for ${{ steps.get_version.outputs.VERSION }}" \
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/lyricsync || strip target/${{ matrix.target }}/release/lyricsync
+          else
+            strip target/${{ matrix.target }}/release/lyricsync
+          fi
 
-      - name: Build
-        id: build
-        run: scripts/release ${{ matrix.target }}
-
-      - name: Upload binaries to release
+      - name: Prepare artifacts (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
-          cd ./target/${{ matrix.target }}/release/
-          cp lyricsync.${{ steps.build.outputs.EXTENSION }} lyricsync-${{ steps.get_version.outputs.VERSION }}-${{ matrix.target }}.${{ steps.build.outputs.EXTENSION }}
-          gh release upload ${{ steps.get_version.outputs.VERSION }} lyricsync-${{ steps.get_version.outputs.VERSION }}-${{ matrix.target }}.${{ steps.build.outputs.EXTENSION }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT_NAME="lyricsync-${VERSION}-${{ matrix.target }}"
+          mkdir -p release-artifacts
+          
+          cp target/${{ matrix.target }}/release/lyricsync "release-artifacts/${ARTIFACT_NAME}"
+          cd release-artifacts
+          sha256sum "${ARTIFACT_NAME}" > "${ARTIFACT_NAME}.sha256"
+          tar czf "${ARTIFACT_NAME}.tar.gz" "${ARTIFACT_NAME}" "${ARTIFACT_NAME}.sha256"
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $VERSION = "${{ needs.prepare.outputs.version }}"
+          $ARTIFACT_NAME = "lyricsync-${VERSION}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          
+          Copy-Item "target/${{ matrix.target }}/release/lyricsync.exe" "release-artifacts/${ARTIFACT_NAME}.exe"
+          $hash = (Get-FileHash "release-artifacts/${ARTIFACT_NAME}.exe" -Algorithm SHA256).Hash.ToLower()
+          "${hash}  ${ARTIFACT_NAME}.exe" | Out-File -Encoding utf8 "release-artifacts/${ARTIFACT_NAME}.exe.sha256"
+          Compress-Archive -Path "release-artifacts/${ARTIFACT_NAME}.exe", "release-artifacts/${ARTIFACT_NAME}.exe.sha256" -DestinationPath "release-artifacts/${ARTIFACT_NAME}.zip"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyricsync-${{ needs.prepare.outputs.version }}-${{ matrix.target }}
+          path: |
+            release-artifacts/lyricsync-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.*
+          retention-days: 7
+
+  # Create GitHub release
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Flatten artifact structure
+        shell: bash
+        run: |
+          # Flatten the nested artifact directories
+          find release-artifacts -type f -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" | while read file; do
+            filename=$(basename "$file")
+            cp "$file" "release-artifacts/$filename"
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Release ${{ needs.prepare.outputs.version }}
+          body: |
+            ## Release ${{ needs.prepare.outputs.version }}
+            
+            ### Installation
+            
+            Download the appropriate binary for your platform:
+            
+            **Linux (x86_64)**
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.tag }}/lyricsync-${{ needs.prepare.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz
+            tar xzf lyricsync-${{ needs.prepare.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz
+            ```
+            
+            **Linux (ARM64)**
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.tag }}/lyricsync-${{ needs.prepare.outputs.version }}-aarch64-unknown-linux-gnu.tar.gz
+            tar xzf lyricsync-${{ needs.prepare.outputs.version }}-aarch64-unknown-linux-gnu.tar.gz
+            ```
+            
+            **macOS (Intel)**
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.tag }}/lyricsync-${{ needs.prepare.outputs.version }}-x86_64-apple-darwin.tar.gz
+            tar xzf lyricsync-${{ needs.prepare.outputs.version }}-x86_64-apple-darwin.tar.gz
+            ```
+            
+            **macOS (Apple Silicon)**
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.tag }}/lyricsync-${{ needs.prepare.outputs.version }}-aarch64-apple-darwin.tar.gz
+            tar xzf lyricsync-${{ needs.prepare.outputs.version }}-aarch64-apple-darwin.tar.gz
+            ```
+            
+            **Windows**
+            ```powershell
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.tag }}/lyricsync-${{ needs.prepare.outputs.version }}-x86_64-pc-windows-msvc.zip" -OutFile "lyricsync.zip"
+            Expand-Archive -Path lyricsync.zip -DestinationPath .
+            ```
+            
+            ### Checksums
+            
+            All binaries include SHA256 checksums for verification.
+          files: |
+            release-artifacts/lyricsync-*.tar.gz
+            release-artifacts/lyricsync-*.zip
+            release-artifacts/lyricsync-*.sha256
+          draft: false
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}

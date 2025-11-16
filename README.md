@@ -175,6 +175,35 @@ cargo fmt
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+### Versioning
+
+The version is managed in `Cargo.toml` and automatically used throughout the codebase. The CLI version is derived from `Cargo.toml` at build time.
+
+**Bumping version:**
+
+```bash
+# Bump patch version (0.1.0 -> 0.1.1)
+./scripts/bump-version.sh patch
+
+# Bump minor version (0.1.0 -> 0.2.0)
+./scripts/bump-version.sh minor
+
+# Bump major version (0.1.0 -> 1.0.0)
+./scripts/bump-version.sh major
+
+# Set specific version
+./scripts/bump-version.sh 0.2.0
+```
+
+**Release workflow:**
+
+1. Update version: `./scripts/bump-version.sh [major|minor|patch]`
+2. Commit: `git commit -am "Bump version to X.Y.Z"`
+3. Tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
+4. Push: `git push && git push --tags`
+
+The CI workflow will automatically build and release binaries for all platforms when a tag is pushed.
+
 ## Contributing 🤝
 
 Contributions are welcome! Please feel free to submit pull requests, open issues

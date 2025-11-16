@@ -47,6 +47,17 @@ jobs:
             exit 1
           fi
 
+      - name: Update Cargo.toml version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Remove 'v' prefix if present (v0.1.0 -> 0.1.0)
+          CARGO_VERSION="${VERSION#v}"
+          # Update version in Cargo.toml using sed
+          sed -i "s/^version = \".*\"/version = \"${CARGO_VERSION}\"/" Cargo.toml
+          echo "Updated Cargo.toml version to ${CARGO_VERSION}"
+          # Verify the change
+          grep "^version = " Cargo.toml
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:

@@ -208,15 +208,6 @@ fn print_completions<G: Generator>(generator: G, cmd: &mut Command) {
 }
 
 fn main() -> Result<()> {
-  let banner = r#"
-██      ██    ██ ██████  ██  ██████     ███████ ██    ██ ███    ██  ██████ 
-██       ██  ██  ██   ██ ██ ██          ██       ██  ██  ████   ██ ██      
-██        ████   ██████  ██ ██          ███████   ████   ██ ██  ██ ██      
-██         ██    ██   ██ ██ ██               ██    ██    ██  ██ ██ ██      
-███████    ██    ██   ██ ██  ██████     ███████    ██    ██   ████  ██████ 
-                            Created by Daniel
-"#;
-
   let mut cmd = Command::new("lyricsync")
     .version("1.0.0")
     .author("Daniel")
@@ -273,8 +264,6 @@ fn main() -> Result<()> {
     }
     return Ok(());
   }
-
-  println!("{}", banner);
 
   let directory = matches.get_one::<String>("directory").unwrap();
   let skip_existing = matches.get_flag("skip");

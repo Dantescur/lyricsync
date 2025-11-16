@@ -209,7 +209,7 @@ fn print_completions<G: Generator>(generator: G, cmd: &mut Command) {
 
 fn main() -> Result<()> {
   let mut cmd = Command::new("lyricsync")
-    .version("1.0.0")
+    .version("0.1.0")
     .author("Daniel")
     .about("Embed LRC lyrics into audio files (FLAC, MP3, M4A)")
     .arg(

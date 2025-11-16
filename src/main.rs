@@ -68,7 +68,9 @@ fn embed_lrc_to_file(audio_path: &Path, lrc_path: &Path, reduce_lrc: bool, dry_r
   if dry_run {
     // In dry-run mode, just validate the file format without making changes
     if !audio_path.extension().is_some_and(|ext| matches!(ext.to_str(), Some("flac" | "mp3" | "m4a"))) {
-      return Err(LrcError::UnsupportedFormat(audio_path.extension().unwrap_or_default().to_string_lossy().to_string()));
+      return Err(LrcError::UnsupportedFormat(
+        audio_path.extension().unwrap_or_default().to_string_lossy().to_string(),
+      ));
     }
     // Skip actual embedding and file deletion in dry-run mode
     return Ok(());
@@ -140,7 +142,13 @@ fn embed_lrc_to_m4a(audio_path: &Path, lyrics: &str) -> Result<()> {
   Ok(())
 }
 
-fn embed_lrc(directory: &Path, skip_existing: bool, reduce_lrc: bool, recursive: bool, dry_run: bool) -> Result<EmbedStats> {
+fn embed_lrc(
+  directory: &Path,
+  skip_existing: bool,
+  reduce_lrc: bool,
+  recursive: bool,
+  dry_run: bool,
+) -> Result<EmbedStats> {
   let mut stats = EmbedStats { total_audio_files: 0, embedded_lyrics: 0, failed_files: Vec::new() };
 
   if dry_run {

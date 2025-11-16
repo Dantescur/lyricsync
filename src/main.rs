@@ -62,8 +62,17 @@ fn has_embedded_lyrics(audio_path: &Path) -> Result<bool> {
   Ok(false)
 }
 
-fn embed_lrc_to_file(audio_path: &Path, lrc_path: &Path, reduce_lrc: bool) -> Result<()> {
+fn embed_lrc_to_file(audio_path: &Path, lrc_path: &Path, reduce_lrc: bool, dry_run: bool) -> Result<()> {
   let lyrics_content = fs::read_to_string(lrc_path)?;
+
+  if dry_run {
+    // In dry-run mode, just validate the file format without making changes
+    if !audio_path.extension().is_some_and(|ext| matches!(ext.to_str(), Some("flac" | "mp3" | "m4a"))) {
+      return Err(LrcError::UnsupportedFormat(audio_path.extension().unwrap_or_default().to_string_lossy().to_string()));
+    }
+    // Skip actual embedding and file deletion in dry-run mode
+    return Ok(());
+  }
 
   if audio_path.extension().is_some_and(|ext| ext == "flac") {
     embed_lrc_to_flac(audio_path, &lyrics_content)?;
@@ -131,8 +140,12 @@ fn embed_lrc_to_m4a(audio_path: &Path, lyrics: &str) -> Result<()> {
   Ok(())
 }
 
-fn embed_lrc(directory: &Path, skip_existing: bool, reduce_lrc: bool, recursive: bool) -> Result<EmbedStats> {
+fn embed_lrc(directory: &Path, skip_existing: bool, reduce_lrc: bool, recursive: bool, dry_run: bool) -> Result<EmbedStats> {
   let mut stats = EmbedStats { total_audio_files: 0, embedded_lyrics: 0, failed_files: Vec::new() };
+
+  if dry_run {
+    println!("[DRY RUN] No files will be modified");
+  }
 
   let walker = if recursive { WalkDir::new(directory) } else { WalkDir::new(directory).max_depth(1) };
 
@@ -168,7 +181,12 @@ fn embed_lrc(directory: &Path, skip_existing: bool, reduce_lrc: bool, recursive:
     if skip_existing {
       match has_embedded_lyrics(&audio_path) {
         Ok(true) => {
-          pb.set_message(format!("Skipped: {}", audio_path.display()));
+          let msg = if dry_run {
+            format!("[DRY RUN] Would skip: {}", audio_path.display())
+          } else {
+            format!("Skipped: {}", audio_path.display())
+          };
+          pb.set_message(msg);
           pb.inc(1);
           continue;
         },
@@ -179,19 +197,26 @@ fn embed_lrc(directory: &Path, skip_existing: bool, reduce_lrc: bool, recursive:
       }
     }
 
-    match embed_lrc_to_file(&audio_path, &lrc_path, reduce_lrc) {
+    match embed_lrc_to_file(&audio_path, &lrc_path, reduce_lrc, dry_run) {
       Ok(()) => {
         stats.embedded_lyrics += 1;
-        pb.set_message(format!("Embedded: {}", audio_path.display()));
+        let msg = if dry_run {
+          format!("[DRY RUN] Would embed: {}", audio_path.display())
+        } else {
+          format!("Embedded: {}", audio_path.display())
+        };
+        pb.set_message(msg);
       },
       Err(e) => {
         eprintln!("Error embedding LRC for {}: {}", audio_path.display(), e);
         stats.failed_files.push(audio_path.clone());
 
-        // Rename failed LRC file
-        let failed_lrc_path = lrc_path.with_extension("lrc.failed");
-        if let Err(e) = fs::rename(&lrc_path, &failed_lrc_path) {
-          eprintln!("Error renaming failed LRC file: {}", e);
+        // Only rename failed LRC file if not in dry-run mode
+        if !dry_run {
+          let failed_lrc_path = lrc_path.with_extension("lrc.failed");
+          if let Err(e) = fs::rename(&lrc_path, &failed_lrc_path) {
+            eprintln!("Error renaming failed LRC file: {}", e);
+          }
         }
       },
     }
@@ -199,7 +224,8 @@ fn embed_lrc(directory: &Path, skip_existing: bool, reduce_lrc: bool, recursive:
     pb.inc(1);
   }
 
-  pb.finish_with_message("Completed!");
+  let finish_msg = if dry_run { "[DRY RUN] Completed!" } else { "Completed!" };
+  pb.finish_with_message(finish_msg);
   Ok(stats)
 }
 
@@ -243,6 +269,12 @@ fn main() -> Result<()> {
         .action(clap::ArgAction::SetTrue),
     )
     .arg(
+      Arg::new("dry-run")
+        .long("dry-run")
+        .help("Show what would be done without making any changes")
+        .action(clap::ArgAction::SetTrue),
+    )
+    .arg(
       Arg::new("generate-completion")
         .long("generate-completion")
         .value_name("SHELL")
@@ -269,8 +301,9 @@ fn main() -> Result<()> {
   let skip_existing = matches.get_flag("skip");
   let reduce_lrc = matches.get_flag("reduce");
   let recursive = matches.get_flag("recursive");
+  let dry_run = matches.get_flag("dry-run");
 
-  let stats = embed_lrc(Path::new(directory), skip_existing, reduce_lrc, recursive)?;
+  let stats = embed_lrc(Path::new(directory), skip_existing, reduce_lrc, recursive, dry_run)?;
 
   let percentage = if stats.total_audio_files > 0 {
     (stats.embedded_lyrics as f64 / stats.total_audio_files as f64) * 100.0
@@ -279,8 +312,12 @@ fn main() -> Result<()> {
   };
 
   println!("\nSummary:");
+  if dry_run {
+    println!("[DRY RUN] Would embed lyrics in {} audio files", stats.embedded_lyrics);
+  } else {
+    println!("Embedded lyrics in {} audio files", stats.embedded_lyrics);
+  }
   println!("Total audio files: {}", stats.total_audio_files);
-  println!("Embedded lyrics in {} audio files", stats.embedded_lyrics);
   println!("Success rate: {:.2}%", percentage);
 
   if !stats.failed_files.is_empty() {

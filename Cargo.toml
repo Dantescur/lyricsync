@@ -1,0 +1,33 @@
+[package]
+name = "lyricsync"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/dantescur/lyricsync"
+build = "build.rs"
+description = "Embed LRC lyrics into audio files (FLAC, MP3, M4A)"
+authors = ["Cesar Daniel"]
+license = "MIT"
+exclude = [".github/*", ".git/*"]
+
+[profile.release]
+strip = "debuginfo"
+lto = "fat"
+codegen-units = 1
+
+[dependencies]
+clap = { version = "4.5.51", features = ['derive'] }
+indicatif = "0.18.3"
+walkdir = "2.5.0"
+thiserror = "2.0.17"
+lofty = "0.22.4"
+clap_complete = "4.5.60"
+
+[build-dependencies]
+anyhow = "1.0.93"
+vergen = { version = "9.0.1", features = ["build", "cargo", "rustc", "si"] }
+vergen-git2 = { version = "1.0.0", features = [
+  "build",
+  "cargo",
+  "rustc",
+  "si",
+] }

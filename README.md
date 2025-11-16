@@ -3,8 +3,6 @@
 A high-performance Rust tool for embedding LRC lyrics into audio files (FLAC,
 MP3, M4A). Perfect for organizing your music library with synchronized lyrics.
 
-![LyricSync Banner](https://via.placeholder.com/800x200/2D3748/FFFFFF?text=LyricSync+-+Embed+Lyrics+Like+a+Pro)
-
 ## Features ✨
 
 - **Multi-format Support**: FLAC, MP3, and M4A files
@@ -19,7 +17,7 @@ MP3, M4A). Perfect for organizing your music library with synchronized lyrics.
 
 ### Pre-built Binaries
 
-Download the latest release from the [releases page](https://github.com/TheRedSpy15/lyricsync/releases).
+Download the latest release from the [releases page](https://github.com/dantescur/lyricsync/releases).
 
 ### From Source
 

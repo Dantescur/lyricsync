@@ -8,6 +8,7 @@ description = "Embed LRC lyrics into audio files (FLAC, MP3, M4A)"
 authors = ["Cesar Daniel"]
 license = "MIT"
 exclude = [".github/*", ".git/*"]
+categories = ["command-line-utilities"]
 
 [profile.release]
 strip = "debuginfo"

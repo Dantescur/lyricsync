@@ -101,10 +101,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain and targets
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: ${{ matrix.target }}
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -119,28 +120,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      - name: Add target for cross-compilation (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          rustup target add ${{ matrix.target }}
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build release binary
+        shell: bash
         run: |
-          if [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
+          # Set up cross-compilation environment for Linux ARM64
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
             export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
           fi
+          
           cargo build --release --target ${{ matrix.target }}
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
         run: |
-          if [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
-            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/lyricsync || strip target/${{ matrix.target }}/release/lyricsync
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            aarch64-linux-gnu-strip "target/${{ matrix.target }}/release/lyricsync" || strip "target/${{ matrix.target }}/release/lyricsync"
           else
-            strip target/${{ matrix.target }}/release/lyricsync
+            strip "target/${{ matrix.target }}/release/lyricsync"
           fi
 
       - name: Prepare artifacts (Unix)
@@ -151,23 +154,23 @@ jobs:
           ARTIFACT_NAME="lyricsync-${VERSION}-${{ matrix.target }}"
           mkdir -p release-artifacts
           
-          cp target/${{ matrix.target }}/release/lyricsync "release-artifacts/${ARTIFACT_NAME}"
+          cp "target/${{ matrix.target }}/release/lyricsync" "release-artifacts/${ARTIFACT_NAME}"
           cd release-artifacts
           sha256sum "${ARTIFACT_NAME}" > "${ARTIFACT_NAME}.sha256"
           tar czf "${ARTIFACT_NAME}.tar.gz" "${ARTIFACT_NAME}" "${ARTIFACT_NAME}.sha256"
 
       - name: Prepare artifacts (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash  # Changed from pwsh to bash for Windows
         run: |
-          $VERSION = "${{ needs.prepare.outputs.version }}"
-          $ARTIFACT_NAME = "lyricsync-${VERSION}-${{ matrix.target }}"
-          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT_NAME="lyricsync-${VERSION}-${{ matrix.target }}"
+          mkdir -p release-artifacts
           
-          Copy-Item "target/${{ matrix.target }}/release/lyricsync.exe" "release-artifacts/${ARTIFACT_NAME}.exe"
-          $hash = (Get-FileHash "release-artifacts/${ARTIFACT_NAME}.exe" -Algorithm SHA256).Hash.ToLower()
-          "${hash}  ${ARTIFACT_NAME}.exe" | Out-File -Encoding utf8 "release-artifacts/${ARTIFACT_NAME}.exe.sha256"
-          Compress-Archive -Path "release-artifacts/${ARTIFACT_NAME}.exe", "release-artifacts/${ARTIFACT_NAME}.exe.sha256" -DestinationPath "release-artifacts/${ARTIFACT_NAME}.zip"
+          cp "target/${{ matrix.target }}/release/lyricsync.exe" "release-artifacts/${ARTIFACT_NAME}.exe"
+          cd release-artifacts
+          sha256sum "${ARTIFACT_NAME}.exe" > "${ARTIFACT_NAME}.exe.sha256"
+          zip "${ARTIFACT_NAME}.zip" "${ARTIFACT_NAME}.exe" "${ARTIFACT_NAME}.exe.sha256"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -194,10 +197,11 @@ jobs:
         shell: bash
         run: |
           # Flatten the nested artifact directories
-          find release-artifacts -type f -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" | while read file; do
+          find release-artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" \) | while read file; do
             filename=$(basename "$file")
             cp "$file" "release-artifacts/$filename"
           done
+          ls -la release-artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

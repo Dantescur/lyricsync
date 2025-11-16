@@ -161,16 +161,21 @@ jobs:
 
       - name: Prepare artifacts (Windows)
         if: runner.os == 'Windows'
-        shell: bash  # Changed from pwsh to bash for Windows
+        shell: pwsh
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          ARTIFACT_NAME="lyricsync-${VERSION}-${{ matrix.target }}"
-          mkdir -p release-artifacts
+          $VERSION = "${{ needs.prepare.outputs.version }}"
+          $ARTIFACT_NAME = "lyricsync-${VERSION}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
           
-          cp "target/${{ matrix.target }}/release/lyricsync.exe" "release-artifacts/${ARTIFACT_NAME}.exe"
-          cd release-artifacts
-          sha256sum "${ARTIFACT_NAME}.exe" > "${ARTIFACT_NAME}.exe.sha256"
-          zip "${ARTIFACT_NAME}.zip" "${ARTIFACT_NAME}.exe" "${ARTIFACT_NAME}.exe.sha256"
+          Copy-Item "target/${{ matrix.target }}/release/lyricsync.exe" "release-artifacts/${ARTIFACT_NAME}.exe"
+          Set-Location release-artifacts
+          
+          # Generate SHA256 checksum
+          $hash = (Get-FileHash "${ARTIFACT_NAME}.exe" -Algorithm SHA256).Hash.ToLower()
+          "${hash}  ${ARTIFACT_NAME}.exe" | Out-File -FilePath "${ARTIFACT_NAME}.exe.sha256" -Encoding ASCII
+          
+          # Create zip archive
+          Compress-Archive -Path "${ARTIFACT_NAME}.exe", "${ARTIFACT_NAME}.exe.sha256" -DestinationPath "${ARTIFACT_NAME}.zip" -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

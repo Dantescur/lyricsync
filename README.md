@@ -159,6 +159,22 @@ cargo build --release
 cargo clippy --all-targets --all-features --workspace -- -D warnings
 ```
 
+### Development Setup
+
+```bash
+# Install git hooks (runs tests, clippy, and formatting checks before push)
+./scripts/setup-git-hooks.sh
+
+# Run tests
+cargo test
+
+# Format code
+cargo fmt
+
+# Run clippy
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
 ## Contributing 🤝
 
 Contributions are welcome! Please feel free to submit pull requests, open issues

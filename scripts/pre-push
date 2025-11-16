@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Pre-push hook to run tests and checks before pushing
+# This ensures code quality before it reaches the remote repository
+
+set -e
+
+echo "Running pre-push checks..."
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Function to print colored messages
+print_status() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+    print_error "cargo not found. Please install Rust toolchain."
+    exit 1
+fi
+
+# Run cargo fmt --check
+echo ""
+echo "Checking code formatting..."
+if cargo fmt --check --all; then
+    print_status "Code formatting is correct"
+else
+    print_error "Code formatting check failed. Run 'cargo fmt' to fix."
+    exit 1
+fi
+
+# Run clippy
+echo ""
+echo "Running clippy..."
+if cargo clippy --all-targets --all-features -- -D warnings; then
+    print_status "Clippy checks passed"
+else
+    print_error "Clippy checks failed. Please fix the warnings/errors above."
+    exit 1
+fi
+
+# Run tests
+echo ""
+echo "Running tests..."
+if cargo test --all-features; then
+    print_status "All tests passed"
+else
+    print_error "Tests failed. Please fix the failing tests before pushing."
+    exit 1
+fi
+
+echo ""
+print_status "All pre-push checks passed! Proceeding with push..."
+
+exit 0
